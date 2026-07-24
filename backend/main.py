@@ -17,8 +17,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from database import get_conn, init_db
-import fetch_data
+try:
+    from .database import get_conn, init_db
+    from . import fetch_data
+except ImportError:  # allow running main.py directly from the backend folder
+    from database import get_conn, init_db
+    import fetch_data
 
 app = FastAPI(title="Indian Equities Tracker API", version="1.0")
 

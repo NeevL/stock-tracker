@@ -23,7 +23,10 @@ import math
 import random
 import sys
 
-from database import get_conn, init_db
+try:
+    from .database import get_conn, init_db
+except ImportError:  # allow running fetch_data.py directly from the backend folder
+    from database import get_conn, init_db
 
 # 20 well-known NSE-listed companies across sectors.
 # ticker    = clean symbol used throughout our API / DB

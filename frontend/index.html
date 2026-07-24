@@ -144,7 +144,11 @@
   .metrics-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin:18px 0 22px; }
   .metrics-grid .m .label{ font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px; }
   .metrics-grid .m .value{ font-size:16px; font-weight:600; margin-top:3px; }
-  canvas#chart{ max-height:280px; }
+  .chart-controls{ display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 14px; }
+  .chart-range-btn{ background:transparent; border:1px solid var(--border); color:var(--muted); padding:6px 10px; border-radius:999px; font-size:11px; cursor:pointer; transition:all .15s ease; }
+  .chart-range-btn:hover{ color:var(--gold); border-color:var(--gold); }
+  .chart-range-btn.active{ background:rgba(212,175,55,0.12); color:var(--gold); border-color:var(--gold); }
+  canvas#chart{ max-height:320px; height:320px; }
   .empty{ color:var(--muted); text-align:center; padding:40px; }
   footer{ text-align:center; color:var(--muted); font-size:11px; padding:20px; border-top:1px solid var(--border); }
 </style>
@@ -207,6 +211,12 @@
       <div class="close" id="closeModal">&times;</div>
     </div>
     <div class="metrics-grid" id="mMetrics"></div>
+    <div class="chart-controls" id="chartControls">
+      <button class="chart-range-btn active" data-days="30">1M</button>
+      <button class="chart-range-btn" data-days="90">3M</button>
+      <button class="chart-range-btn" data-days="180">6M</button>
+      <button class="chart-range-btn" data-days="365">1Y</button>
+    </div>
     <canvas id="chart"></canvas>
   </div>
 </div>
@@ -217,6 +227,8 @@ let stocksCache = [];
 let chartInstance = null;
 let currentSortOrder = 'desc';
 let currentQuickFilter = '';
+let activeChartTicker = null;
+let activeChartDays = 180;
 
 const fmtNum = (n, d=2) => (n === null || n === undefined) ? '—' : Number(n).toLocaleString('en-IN', {maximumFractionDigits: d});
 const fmtCr = (n) => (n === null || n === undefined) ? '—' : (n >= 100000 ? (n/100000).toFixed(2)+'L' : fmtNum(n,0));
@@ -336,6 +348,79 @@ function renderTable(stocks){
   `).join('');
 }
 
+function renderChart(ticker, hist){
+  const ctx = document.getElementById('chart').getContext('2d');
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: hist.candles.map(c => c.date),
+      datasets: [{
+        label: `${ticker} Close (₹)`,
+        data: hist.candles.map(c => c.close),
+        borderColor: '#D4AF37',
+        backgroundColor: 'rgba(212,175,55,0.16)',
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#D4AF37',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(11, 14, 20, 0.95)',
+          titleColor: '#E8EAF0',
+          bodyColor: '#E8EAF0',
+          borderColor: 'rgba(212,175,55,0.5)',
+          borderWidth: 1,
+          callbacks: {
+            title: (items) => items[0]?.label ?? '',
+            label: (context) => {
+              const candle = hist.candles[context.dataIndex];
+              return [
+                `Close: ₹${fmtNum(candle.close)}`,
+                `Open: ₹${fmtNum(candle.open)}`,
+                `High: ₹${fmtNum(candle.high)}`,
+                `Low: ₹${fmtNum(candle.low)}`,
+                `Volume: ${fmtNum(candle.volume, 0)}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#7C8394', maxTicksLimit: 8 },
+          grid: { color: 'rgba(35, 40, 56, 0.5)' }
+        },
+        y: {
+          ticks: { color: '#7C8394' },
+          grid: { color: 'rgba(35, 40, 56, 0.5)' }
+        }
+      }
+    }
+  });
+}
+
+async function loadChartData(ticker, days = activeChartDays){
+  if (!ticker) return;
+  activeChartTicker = ticker;
+  activeChartDays = days;
+  document.querySelectorAll('.chart-range-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.days) === days);
+  });
+
+  const hist = await fetch(`${API}/stocks/${ticker}/history?days=${days}`).then(r=>r.json());
+  renderChart(ticker, hist);
+}
+
 async function openModal(ticker){
   const s = stocksCache.find(x => x.ticker === ticker);
   if (!s) return;
@@ -352,35 +437,15 @@ async function openModal(ticker){
     <div class="m"><div class="label">52W High / Low</div><div class="value">₹${fmtNum(s.week52_high,0)} / ₹${fmtNum(s.week52_low,0)}</div></div>
   `;
   document.getElementById('overlay').classList.add('open');
-
-  const hist = await fetch(`${API}/stocks/${ticker}/history?days=180`).then(r=>r.json());
-  const ctx = document.getElementById('chart').getContext('2d');
-  if (chartInstance) chartInstance.destroy();
-  chartInstance = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: hist.candles.map(c => c.date),
-      datasets: [{
-        label: `${ticker} Close (₹)`,
-        data: hist.candles.map(c => c.close),
-        borderColor: '#D4AF37',
-        backgroundColor: 'rgba(212,175,55,0.08)',
-        pointRadius: 0,
-        borderWidth: 1.5,
-        fill: true,
-        tension: 0.15,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#7C8394', maxTicksLimit: 8 }, grid: { color: '#232838' } },
-        y: { ticks: { color: '#7C8394' }, grid: { color: '#232838' } }
-      }
-    }
-  });
+  await loadChartData(ticker, activeChartDays);
 }
+
+document.querySelectorAll('.chart-range-btn').forEach(btn => {
+  btn.onclick = async () => {
+    if (!activeChartTicker) return;
+    await loadChartData(activeChartTicker, Number(btn.dataset.days));
+  };
+});
 
 document.getElementById('closeModal').onclick = () => document.getElementById('overlay').classList.remove('open');
 document.getElementById('overlay').onclick = (e) => { if (e.target.id === 'overlay') e.currentTarget.classList.remove('open'); };
